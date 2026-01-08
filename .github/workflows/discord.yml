@@ -1,4 +1,4 @@
-name: Discord Event Scheduler with Reminder & Delete
+name: Discord Event Scheduler with Reminder, Delete & Instant Test
 
 on:
   schedule:
@@ -9,18 +9,30 @@ jobs:
   scheduler:
     runs-on: ubuntu-latest
     steps:
-      - name: Send reminders, main events, and instant test
+      - name: Send scheduled reminders, events, and instant test
         shell: bash
         run: |
           #!/usr/bin/env bash
+          set -euo pipefail
+
           NOW=$(date +%s)
           DAY=$(date +%u)  # 1=Mon ... 7=Sun
           echo "Workflow started at timestamp: $NOW, day: $DAY"
 
           send() {
-            RESPONSE=$(curl -s -H "Content-Type: application/json" \
-              -X POST -d "$1" ${{ secrets.DISCORD_WEBHOOK }})
-            MESSAGE_ID=$(echo "$RESPONSE" | grep -oP '(?<="id":")[^"]+')
+            RESPONSE=$(curl -s -w "%{http_code}" -H "Content-Type: application/json" -X POST -d "$1" ${{ secrets.DISCORD_WEBHOOK }})
+            HTTP_CODE="${RESPONSE: -3}"
+            BODY="${RESPONSE::-3}"
+
+            echo "Discord response code: $HTTP_CODE"
+            echo "Discord response body: $BODY"
+
+            if [[ "$HTTP_CODE" != "200" && "$HTTP_CODE" != "204" ]]; then
+              echo "Error sending message to Discord webhook"
+              return 1
+            fi
+
+            MESSAGE_ID=$(echo "$BODY" | grep -oP '(?<="id":")[^"]+' || echo "")
             echo "$MESSAGE_ID"
           }
 
@@ -38,18 +50,25 @@ jobs:
 
             # Reminder 5 min before
             if [ $NOW -ge $REMINDER_TS ] && [ $NOW -lt $(( REMINDER_TS + 60 )) ]; then
-              send "$REMINDER_JSON"
+              if ! send "$REMINDER_JSON"; then
+                echo "Failed to send reminder message"
+              fi
             fi
 
             # Main event
             if [ $NOW -ge $EVENT_TS ] && [ $NOW -lt $(( EVENT_TS + 60 )) ]; then
-              MESSAGE_ID=$(curl -s -H "Content-Type: application/json" \
-                -X POST -d "$EVENT_JSON" ${{ secrets.DISCORD_WEBHOOK }} | grep -oP '(?<="id":")[^"]+')
-              if [ ! -z "$MESSAGE_ID" ]; then
-                echo "Will delete $MESSAGE_ID in 30 minutes"
+              MESSAGE_ID=$(send "$EVENT_JSON") || {
+                echo "Failed to send main event message"
+                MESSAGE_ID=""
+              }
+              if [ -n "$MESSAGE_ID" ]; then
+                echo "Will delete message $MESSAGE_ID in 30 minutes"
                 sleep 1800
-                curl -s -X DELETE -H "Content-Type: application/json" \
-                  ${{ secrets.DISCORD_WEBHOOK }}/messages/$MESSAGE_ID
+                if ! curl -s -X DELETE -H "Content-Type: application/json" ${{ secrets.DISCORD_WEBHOOK }}/messages/$MESSAGE_ID; then
+                  echo "Failed to delete message $MESSAGE_ID"
+                else
+                  echo "Message deleted successfully."
+                fi
               fi
             fi
           }
@@ -84,12 +103,13 @@ jobs:
             '{"content":"<@&1453137439550865481> **World Apex starts now!** <t:1766952000:t>"}' \
             '{"content":"<@&1453137439550865481> **Reminder: World Apex in 5 minutes!** <t:1766952000:t>"}' "7"
 
-          # ===================== INSTANT TEST EVENT =====================
+          # ===================== INSTANT TEST =====================
           if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
             echo "Running instant test..."
-            REMINDER_DELAY=30   # 30s after workflow launch
-            MAIN_DELAY=60       # 1min after launch
-            DELETE_DELAY=60     # delete 1min after main
+
+            REMINDER_DELAY=30   # seconds after launch
+            MAIN_DELAY=60       # seconds after launch
+            DELETE_DELAY=60     # seconds after main message
 
             REMINDER_JSON='{"content":"<@&1453137439550865481> **[TEST] Reminder: Beast Invasion in 30 seconds!**"}'
             MAIN_JSON='{"content":"<@&1453137439550865481> **[TEST] Beast Invasion starts now!**"}'
@@ -97,18 +117,23 @@ jobs:
             echo "Waiting $REMINDER_DELAY seconds for test reminder..."
             sleep $REMINDER_DELAY
             echo "Sending test reminder..."
-            send "$REMINDER_JSON"
+            send "$REMINDER_JSON" || echo "Failed to send test reminder"
 
             echo "Waiting $((MAIN_DELAY - REMINDER_DELAY)) seconds for test main message..."
             sleep $((MAIN_DELAY - REMINDER_DELAY))
             echo "Sending test main message..."
-            MESSAGE_ID=$(send "$MAIN_JSON")
+            MESSAGE_ID=$(send "$MAIN_JSON") || {
+              echo "Failed to send test main message"
+              MESSAGE_ID=""
+            }
 
-            if [ ! -z "$MESSAGE_ID" ]; then
+            if [ -n "$MESSAGE_ID" ]; then
               echo "Will delete test message $MESSAGE_ID in $DELETE_DELAY seconds..."
               sleep $DELETE_DELAY
-              curl -s -X DELETE -H "Content-Type: application/json" \
-                ${{ secrets.DISCORD_WEBHOOK }}/messages/$MESSAGE_ID
-              echo "Test message deleted."
+              if ! curl -s -X DELETE -H "Content-Type: application/json" ${{ secrets.DISCORD_WEBHOOK }}/messages/$MESSAGE_ID; then
+                echo "Failed to delete test message $MESSAGE_ID"
+              else
+                echo "Test message deleted successfully."
+              fi
             fi
           fi
