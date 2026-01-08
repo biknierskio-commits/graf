@@ -1,0 +1,17 @@
+name: Scheduled Discord Message
+
+on:
+  schedule:
+    - cron: "0 14 * * *"  # Sends every day at 14:00 UTC
+  workflow_dispatch:
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send message
+        run: |
+          curl -H "Content-Type: application/json" \
+          -X POST \
+          -d '{"content":"Hello! This message was sent automatically 🚀"}' \
+          ${{ secrets.DISCORD_WEBHOOK }}
