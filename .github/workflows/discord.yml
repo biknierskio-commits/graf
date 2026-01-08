@@ -2,19 +2,21 @@ name: Discord Event Scheduler with Reminder & Delete
 
 on:
   schedule:
-    - cron: "* * * * *"  # checks every minute
-  workflow_dispatch:
+    - cron: "* * * * *"  # Checks every minute for real events
+  workflow_dispatch:      # Manual trigger for instant test
 
 jobs:
   scheduler:
     runs-on: ubuntu-latest
     steps:
-      - name: Send reminders and auto-delete
+      - name: Send reminders, main events, and instant test
         shell: bash
         run: |
+          #!/usr/bin/env bash
           NOW=$(date +%s)
           DAY=$(date +%u)  # 1=Mon ... 7=Sun
-          
+          echo "Workflow started at timestamp: $NOW, day: $DAY"
+
           send() {
             RESPONSE=$(curl -s -H "Content-Type: application/json" \
               -X POST -d "$1" ${{ secrets.DISCORD_WEBHOOK }})
@@ -52,15 +54,6 @@ jobs:
             fi
           }
 
-          # ===================== TEST EVENT =====================
-          TEST_EVENT_TS=$(( NOW + 420 ))          # 7 minutes from now
-          TEST_REMINDER_TS=$(( TEST_EVENT_TS - 300 ))  # 5 minutes before
-
-          schedule_event $TEST_EVENT_TS $TEST_REMINDER_TS \
-            '{"content":"<@&1453137439550865481> **[TEST] Beast Invasion starts now!**"}' \
-            '{"content":"<@&1453137439550865481> **[TEST] Reminder: Beast Invasion in 5 minutes!**"}' \
-            "1 2 3 4 5 6 7"
-
           # ===================== REAL EVENTS =====================
           # Beast Invasions (Daily)
           schedule_event 1767027632 1767027332 \
@@ -90,3 +83,32 @@ jobs:
           schedule_event 1766952000 1766951700 \
             '{"content":"<@&1453137439550865481> **World Apex starts now!** <t:1766952000:t>"}' \
             '{"content":"<@&1453137439550865481> **Reminder: World Apex in 5 minutes!** <t:1766952000:t>"}' "7"
+
+          # ===================== INSTANT TEST EVENT =====================
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            echo "Running instant test..."
+            REMINDER_DELAY=30   # 30s after workflow launch
+            MAIN_DELAY=60       # 1min after launch
+            DELETE_DELAY=60     # delete 1min after main
+
+            REMINDER_JSON='{"content":"<@&1453137439550865481> **[TEST] Reminder: Beast Invasion in 30 seconds!**"}'
+            MAIN_JSON='{"content":"<@&1453137439550865481> **[TEST] Beast Invasion starts now!**"}'
+
+            echo "Waiting $REMINDER_DELAY seconds for test reminder..."
+            sleep $REMINDER_DELAY
+            echo "Sending test reminder..."
+            send "$REMINDER_JSON"
+
+            echo "Waiting $((MAIN_DELAY - REMINDER_DELAY)) seconds for test main message..."
+            sleep $((MAIN_DELAY - REMINDER_DELAY))
+            echo "Sending test main message..."
+            MESSAGE_ID=$(send "$MAIN_JSON")
+
+            if [ ! -z "$MESSAGE_ID" ]; then
+              echo "Will delete test message $MESSAGE_ID in $DELETE_DELAY seconds..."
+              sleep $DELETE_DELAY
+              curl -s -X DELETE -H "Content-Type: application/json" \
+                ${{ secrets.DISCORD_WEBHOOK }}/messages/$MESSAGE_ID
+              echo "Test message deleted."
+            fi
+          fi
