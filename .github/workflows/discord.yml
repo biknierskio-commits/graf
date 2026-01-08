@@ -1,17 +1,92 @@
-name: Scheduled Discord Message
+name: Discord Event Scheduler with Reminder & Delete
 
 on:
   schedule:
-    - cron: "0 14 * * *"  # Sends every day at 14:00 UTC
+    - cron: "* * * * *"  # check every minute
   workflow_dispatch:
 
 jobs:
-  send:
+  scheduler:
     runs-on: ubuntu-latest
     steps:
-      - name: Send message
+      - name: Send reminders and auto-delete
         run: |
-          curl -H "Content-Type: application/json" \
-          -X POST \
-          -d '{"content":"Hello! This message was sent automatically 🚀"}' \
-          ${{ secrets.DISCORD_WEBHOOK }}
+          NOW=$(date +%s)
+
+          send() {
+            # $1 = JSON data
+            RESPONSE=$(curl -s -H "Content-Type: application/json" \
+              -X POST \
+              -d "$1" \
+              ${{ secrets.DISCORD_WEBHOOK }})
+            echo "$RESPONSE"
+            # Extract message ID if present
+            MESSAGE_ID=$(echo "$RESPONSE" | grep -oP '(?<="id":")[^"]+')
+            echo "$MESSAGE_ID"
+          }
+
+          delete_after() {
+            MESSAGE_ID=$1
+            sleep 1800  # wait 30 minutes
+            curl -s -X DELETE -H "Content-Type: application/json" \
+              ${{ secrets.DISCORD_WEBHOOK }}/messages/$MESSAGE_ID
+          }
+
+          schedule_event() {
+            EVENT_TS=$1
+            REMINDER_TS=$2
+            EVENT_JSON="$3"
+            REMINDER_JSON="$4"
+
+            # Send reminder 5 minutes before
+            if [ $NOW -ge $REMINDER_TS ] && [ $NOW -lt $(($REMINDER_TS + 60)) ]; then
+              send "$REMINDER_JSON"
+            fi
+
+            # Send main event
+            if [ $NOW -ge $EVENT_TS ] && [ $NOW -lt $(($EVENT_TS + 60)) ]; then
+              RESPONSE=$(curl -s -H "Content-Type: application/json" \
+                -X POST -d "$EVENT_JSON" ${{ secrets.DISCORD_WEBHOOK }})
+              MESSAGE_ID=$(echo "$RESPONSE" | grep -oP '(?<="id":")[^"]+')
+              if [ ! -z "$MESSAGE_ID" ]; then
+                echo "Will delete message $MESSAGE_ID in 30 min"
+                sleep 1800
+                curl -s -X DELETE -H "Content-Type: application/json" \
+                  ${{ secrets.DISCORD_WEBHOOK }}/messages/$MESSAGE_ID
+              fi
+            fi
+          }
+
+          # ===================== EVENTS =====================
+          # Replace these timestamps with your events
+          # Format: EVENT_TS = Unix timestamp of main event
+          # REMINDER_TS = Unix timestamp 5 minutes before
+
+          # Beast Invasions
+          schedule_event 1767027632 1767027332 \
+            '{"content":"<@&1453137439550865481> **Beast Invasions starts now!** <t:1767027632:t>"}' \
+            '{"content":"<@&1453137439550865481> **Reminder: Beast Invasions in 5 minutes!** <t:1767027632:t>"}'
+
+          schedule_event 1766962832 1766962532 \
+            '{"content":"<@&1453137439550865481> **Beast Invasions starts now!** <t:1766962832:t>"}' \
+            '{"content":"<@&1453137439550865481> **Reminder: Beast Invasions in 5 minutes!** <t:1766962832:t>"}'
+
+          # Sect Clash
+          schedule_event 1766952032 1766951732 \
+            '{"content":"<@&1453137439550865481> **Sect Clash starts now!** <t:1766952032:t>-<t:1766952900:t>"}' \
+            '{"content":"<@&1453137439550865481> **Reminder: Sect Clash in 5 minutes!** <t:1766952032:t>"}'
+
+          # Otherworld Invasion
+          schedule_event 1767020400 1767020100 \
+            '{"content":"<@&1453137439550865481> **Otherworld Invasion starts now!** <t:1767020400:t> - <t:1766977200:t>"}' \
+            '{"content":"<@&1453137439550865481> **Reminder: Otherworld Invasion in 5 minutes!** <t:1767020400:t>"}'
+
+          # Demonbend Abyss & Sect Meditation
+          schedule_event 1767025800 1767025500 \
+            '{"content":"<@&1453137439550865481> **Demonbend Abyss & Sect Meditation starts now!** <t:1767025800:t>"}' \
+            '{"content":"<@&1453137439550865481> **Reminder: Demonbend Abyss & Sect Meditation in 5 minutes!** <t:1767025800:t>"}'
+
+          # World Apex
+          schedule_event 1766952000 1766951700 \
+            '{"content":"<@&1453137439550865481> **World Apex starts now!** <t:1766952000:t>"}' \
+            '{"content":"<@&1453137439550865481> **Reminder: World Apex in 5 minutes!** <t:1766952000:t>"}'
