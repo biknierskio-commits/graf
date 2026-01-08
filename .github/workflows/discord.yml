@@ -10,6 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Send reminders and auto-delete
+        shell: bash
         run: |
           NOW=$(date +%s)
           DAY=$(date +%u)  # 1=Mon ... 7=Sun
@@ -29,17 +30,17 @@ jobs:
             DAYS="$5"
 
             # Only run on allowed days
-            if ! [[ " $DAYS " =~ " $DAY " ]]; then
+            if ! echo " $DAYS " | grep -qw "$DAY"; then
               return
             fi
 
             # Reminder 5 min before
-            if [ $NOW -ge $REMINDER_TS ] && [ $NOW -lt $(($REMINDER_TS + 60)) ]; then
+            if [ $NOW -ge $REMINDER_TS ] && [ $NOW -lt $(( REMINDER_TS + 60 )) ]; then
               send "$REMINDER_JSON"
             fi
 
             # Main event
-            if [ $NOW -ge $EVENT_TS ] && [ $NOW -lt $(($EVENT_TS + 60)) ]; then
+            if [ $NOW -ge $EVENT_TS ] && [ $NOW -lt $(( EVENT_TS + 60 )) ]; then
               MESSAGE_ID=$(curl -s -H "Content-Type: application/json" \
                 -X POST -d "$EVENT_JSON" ${{ secrets.DISCORD_WEBHOOK }} | grep -oP '(?<="id":")[^"]+')
               if [ ! -z "$MESSAGE_ID" ]; then
@@ -52,10 +53,8 @@ jobs:
           }
 
           # ===================== TEST EVENT =====================
-          # Test Beast Invasion 7 minutes from now
-          # Calculate your timestamps before committing
-          TEST_EVENT_TS=$(($(date +%s) + 420))   # 7 minutes from now
-          TEST_REMINDER_TS=$(($TEST_EVENT_TS - 300))  # 5 minutes before
+          TEST_EVENT_TS=$(( NOW + 420 ))          # 7 minutes from now
+          TEST_REMINDER_TS=$(( TEST_EVENT_TS - 300 ))  # 5 minutes before
 
           schedule_event $TEST_EVENT_TS $TEST_REMINDER_TS \
             '{"content":"<@&1453137439550865481> **[TEST] Beast Invasion starts now!**"}' \
@@ -74,4 +73,20 @@ jobs:
 
           # Sect Clash (Saturday)
           schedule_event 1766952032 1766951732 \
-            '{"content":"<@&1453137439550865481> **Sect Clash starts now!** <t:1766952032:t>-<t:1
+            '{"content":"<@&1453137439550865481> **Sect Clash starts now!** <t:1766952032:t>-<t:1766952900:t>"}' \
+            '{"content":"<@&1453137439550865481> **Reminder: Sect Clash in 5 minutes!** <t:1766952032:t>"}' "6"
+
+          # Otherworld Invasion (Sat & Sun)
+          schedule_event 1767020400 1767020100 \
+            '{"content":"<@&1453137439550865481> **Otherworld Invasion starts now!** <t:1767020400:t> - <t:1766977200:t>"}' \
+            '{"content":"<@&1453137439550865481> **Reminder: Otherworld Invasion in 5 minutes!** <t:1767020400:t>"}' "6 7"
+
+          # Demonbend Abyss & Sect Meditation (Mon–Fri)
+          schedule_event 1767025800 1767025500 \
+            '{"content":"<@&1453137439550865481> **Demonbend Abyss & Sect Meditation starts now!** <t:1767025800:t>"}' \
+            '{"content":"<@&1453137439550865481> **Reminder: Demonbend Abyss & Sect Meditation in 5 minutes!** <t:1767025800:t>"}' "1 2 3 4 5"
+
+          # World Apex (Sunday)
+          schedule_event 1766952000 1766951700 \
+            '{"content":"<@&1453137439550865481> **World Apex starts now!** <t:1766952000:t>"}' \
+            '{"content":"<@&1453137439550865481> **Reminder: World Apex in 5 minutes!** <t:1766952000:t>"}' "7"
