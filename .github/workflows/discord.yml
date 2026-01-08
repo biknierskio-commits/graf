@@ -1,4 +1,4 @@
-name: Discord Event Scheduler with Reminder & Delete
+name: Discord Event Scheduler with Reminder & Delete 
 
 on:
   schedule:
